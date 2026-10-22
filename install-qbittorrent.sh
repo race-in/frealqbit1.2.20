@@ -57,12 +57,18 @@ fi
 
 [[ "$QB_CACHE_MIB" =~ ^[0-9]+$ ]] || die "QB_CACHE_MIB must be a non-negative integer."
 (( QB_CACHE_MIB > 0 )) || die "QB_CACHE_MIB must be greater than zero."
-[[ "$QB_WEB_PORT" =~ ^[0-9]+$ ]] && (( QB_WEB_PORT >= 1 && QB_WEB_PORT <= 65535 )) || die "QB_WEB_PORT must be between 1 and 65535."
+if [[ ! "$QB_WEB_PORT" =~ ^[0-9]+$ ]] || (( QB_WEB_PORT < 1 || QB_WEB_PORT > 65535 )); then
+    die "QB_WEB_PORT must be between 1 and 65535."
+fi
 if [[ -n "$QB_INCOMING_PORT" ]]; then
-    [[ "$QB_INCOMING_PORT" =~ ^[0-9]+$ ]] && (( QB_INCOMING_PORT >= 1 && QB_INCOMING_PORT <= 65535 )) || die "QB_INCOMING_PORT must be between 1 and 65535."
+    if [[ ! "$QB_INCOMING_PORT" =~ ^[0-9]+$ ]] || (( QB_INCOMING_PORT < 1 || QB_INCOMING_PORT > 65535 )); then
+        die "QB_INCOMING_PORT must be between 1 and 65535."
+    fi
 fi
 if [[ -n "$QB_MAX_CONNECTIONS" ]]; then
-    [[ "$QB_MAX_CONNECTIONS" =~ ^[0-9]+$ ]] && (( QB_MAX_CONNECTIONS >= 1 )) || die "QB_MAX_CONNECTIONS must be a positive integer."
+    if [[ ! "$QB_MAX_CONNECTIONS" =~ ^[0-9]+$ ]] || (( QB_MAX_CONNECTIONS < 1 )); then
+        die "QB_MAX_CONNECTIONS must be a positive integer."
+    fi
 fi
 [[ "$QB_RACING" == "0" || "$QB_RACING" == "1" ]] || die "QB_RACING must be 0 or 1."
 [[ "$ALLOW_UNPATCHED" == "0" || "$ALLOW_UNPATCHED" == "1" ]] || die "QB_ALLOW_UNPATCHED must be 0 or 1."
@@ -393,7 +399,7 @@ rm ~/.nginx/conf.d/000-default-server.d/wiki-qbittorrent.conf 2>/dev/null || tru
 
 # --------------------------------------------------------------- launch script
 mkdir -p ~/.config/feral/ns/containers/docs-qbittorrent
-pushd ~/.config/feral/ns/containers/docs-qbittorrent >/dev/null
+pushd ~/.config/feral/ns/containers/docs-qbittorrent >/dev/null || die "Could not enter the qBittorrent container directory."
 rm -f qbittorrent-nox
 echo debian-trixie >root
 
@@ -401,7 +407,7 @@ cat >start <<'EOF_START'
 #!/usr/bin/env bash
 set -eux -o pipefail
 
-pushd "$FERAL_SLOTNS_PATH"
+pushd "$FERAL_SLOTNS_PATH" || exit 1
 # Download the binary if it is missing
 if [[ ! -f qbittorrent-nox ]]; then
     wget --no-verbose -O qbittorrent-nox.part "@QB_URL@"
@@ -412,7 +418,7 @@ if [[ ! -f qbittorrent-nox ]]; then
     # Trigger restart
     pkill -x qbittorrent-nox || true
 fi
-popd
+popd || exit 1
 
 # Start
 cd "$HOME"
@@ -422,7 +428,7 @@ mkdir -p "$TMPDIR"
 EOF_START
 sed -i -e "s|@QB_URL@|$URL|g" -e "s|@QB_SHA256@|$QB_SHA256|g" start
 chmod +x start
-popd >/dev/null
+popd >/dev/null || die "Could not leave the qBittorrent container directory."
 
 # ---------------------------------------------------------------------- report
 if [[ "$QB_VERSION" == "latest" ]]; then
