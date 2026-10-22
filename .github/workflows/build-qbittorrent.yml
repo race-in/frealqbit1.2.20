@@ -36,7 +36,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-${{ github.event.inputs.qb_version }}
+  group: build-${{ github.event.inputs.qb_version }}-${{ github.event.inputs.lt_version }}
   cancel-in-progress: false
 
 jobs:
@@ -68,6 +68,7 @@ jobs:
           [[ "${QT_INPUT}" =~ ^(auto|5|6)$ ]]              || { echo "Invalid qt_version: ${QT_INPUT}"; exit 1; }
           [[ "${SCRIPT_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]      || { echo "Invalid script_ref"; exit 1; }
           [[ "${PATCH_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]       || { echo "Invalid patch_ref"; exit 1; }
+          [[ "${SCRIPT_REF}" != *".."* && "${PATCH_REF}" != *".."* ]] || { echo "Refs must not contain path traversal"; exit 1; }
 
           # Qt version
           if [[ "${QT_INPUT}" == "auto" ]]; then

@@ -15,9 +15,10 @@ Installer for **qBittorrent-nox** on a [Feral Hosting](https://www.feralhosting.
 install-qbittorrent.sh
 README.md
 .github/workflows/build-qbittorrent.yml
+.github/workflows/installer-checks.yml
 ```
 
-The repository must be **public** (the free ARM build runner is only free for public repositories).
+The repository must be **public** (the free ARM build runner is only free for public repositories). The build workflow is stored in `.github/workflows/build-qbittorrent.yml`, where GitHub Actions discovers it. A separate installer-check workflow runs Bash syntax validation and ShellCheck.
 
 ## Step 1: build the patched binary (once per version)
 
