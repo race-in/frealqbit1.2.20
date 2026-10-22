@@ -55,8 +55,21 @@ if [[ ! -d ~/.nginx ]]; then
     exit 1
 fi
 
-[[ "$QB_CACHE_MIB" =~ ^[0-9]+$ ]] || die "QB_CACHE_MIB must be a number."
-[[ "$QB_WEB_PORT" =~ ^[0-9]+$ ]] || die "QB_WEB_PORT must be a number."
+[[ "$QB_CACHE_MIB" =~ ^[0-9]+$ ]] || die "QB_CACHE_MIB must be a non-negative integer."
+(( QB_CACHE_MIB > 0 )) || die "QB_CACHE_MIB must be greater than zero."
+[[ "$QB_WEB_PORT" =~ ^[0-9]+$ ]] && (( QB_WEB_PORT >= 1 && QB_WEB_PORT <= 65535 )) || die "QB_WEB_PORT must be between 1 and 65535."
+if [[ -n "$QB_INCOMING_PORT" ]]; then
+    [[ "$QB_INCOMING_PORT" =~ ^[0-9]+$ ]] && (( QB_INCOMING_PORT >= 1 && QB_INCOMING_PORT <= 65535 )) || die "QB_INCOMING_PORT must be between 1 and 65535."
+fi
+if [[ -n "$QB_MAX_CONNECTIONS" ]]; then
+    [[ "$QB_MAX_CONNECTIONS" =~ ^[0-9]+$ ]] && (( QB_MAX_CONNECTIONS >= 1 )) || die "QB_MAX_CONNECTIONS must be a positive integer."
+fi
+[[ "$QB_RACING" == "0" || "$QB_RACING" == "1" ]] || die "QB_RACING must be 0 or 1."
+[[ "$ALLOW_UNPATCHED" == "0" || "$ALLOW_UNPATCHED" == "1" ]] || die "QB_ALLOW_UNPATCHED must be 0 or 1."
+# Validate dependencies before changing any running service or configuration.
+if ! command -v python3 >/dev/null 2>&1 && ! command -v php >/dev/null 2>&1; then
+    die "Need python3 or php to hash the WebUI password; install one before running this installer."
+fi
 
 # ---------------------------------------------------------------- download URL
 # Source 1: userdocs/qbittorrent-nox-static (recent versions).
@@ -108,6 +121,8 @@ fetch_text() {
 BUILD_STATE=""
 if [[ -n "${QB_URL:-}" ]]; then
     URL="$QB_URL"
+    [[ "$QB_SHA256" =~ ^[0-9a-fA-F]{64}$ ]] || die "QB_URL requires QB_SHA256 (64 hexadecimal characters); refusing to install an unverified binary."
+    QB_SHA256="${QB_SHA256,,}"
     BUILD_STATE="custom binary (QB_URL), patch state unknown"
 else
     if [[ "$QB_VERSION" == "latest" ]]; then
@@ -124,7 +139,7 @@ else
             if [[ "$sum" =~ ^[0-9a-f]{64}$ ]]; then
                 QB_SHA256="$sum"
             else
-                echo "WARNING: no SHA-256 file found next to the patched release; the binary will not be verified."
+                die "Patched release has no valid .sha256 checksum. Publish x86_64-qbittorrent-nox.sha256 or provide QB_SHA256; refusing an unverified binary."
             fi
         fi
     elif [[ "$QB_VERSION" != "latest" ]] && jerry_sha="$(jerry_sha256 "$QB_VERSION" "$LT_VERSION")"; then
@@ -139,6 +154,11 @@ else
             URL="https://github.com/$REPO/releases/download/release-${QB_VERSION}_v${LT_VERSION}/x86_64-qbittorrent-nox"
         fi
         url_exists "$URL" || die "No binary found for qBittorrent $QB_VERSION + libtorrent $LT_VERSION. Check https://github.com/$REPO/releases or set QB_URL."
+        if [[ -z "$QB_SHA256" ]]; then
+            sum="$(fetch_text "$URL.sha256" | awk 'NR==1 {print $1}')"
+            [[ "$sum" =~ ^[0-9a-fA-F]{64}$ ]] || die "Stock release has no valid .sha256 checksum. Set QB_SHA256 explicitly; refusing an unverified binary."
+            QB_SHA256="${sum,,}"
+        fi
         BUILD_STATE="NOT PATCHED (stock userdocs build, QB_ALLOW_UNPATCHED=1)"
         echo "WARNING: installing the stock, unpatched build."
     else
@@ -265,9 +285,21 @@ fi
 # ------------------------------------------------------- stop existing processes
 rm -rf ~/.config/feral/ns/containers/docs-qbittorrent 2>/dev/null || true
 rm ~/.config/feral/user-container.d/wiki-qbittorrent 2>/dev/null || true
-pkill -x qbittorrent-nox 2>/dev/null || true
-sleep 3
-pkill -9 -x qbittorrent-nox 2>/dev/null || true
+# Stop only the qBittorrent instance launched from this installer-managed container.
+# Never kill unrelated qBittorrent instances owned by the same account.
+for pid in $(pgrep -x qbittorrent-nox 2>/dev/null || true); do
+    cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+    if [[ "$cmdline" == *"docs-qbittorrent"* || "$cmdline" == *"$HOME/.config/feral/ns/containers/docs-qbittorrent"* ]]; then
+        kill "$pid" 2>/dev/null || true
+        for _ in {1..10}; do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+        done
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "WARNING: managed qBittorrent PID $pid did not stop; leaving it running rather than force-killing it." >&2
+        fi
+    fi
+done
 
 # ------------------------------------------------------------------- password
 pass="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 15; echo '')"
@@ -373,9 +405,8 @@ pushd "$FERAL_SLOTNS_PATH"
 # Download the binary if it is missing
 if [[ ! -f qbittorrent-nox ]]; then
     wget --no-verbose -O qbittorrent-nox.part "@QB_URL@"
-    if [[ -n "@QB_SHA256@" ]]; then
-        echo "@QB_SHA256@  qbittorrent-nox.part" | sha256sum -c -
-    fi
+    [[ "@QB_SHA256@" =~ ^[0-9a-f]{64}$ ]] || { echo "ERROR: missing or invalid expected SHA-256; refusing to install binary." >&2; rm -f qbittorrent-nox.part; exit 1; }
+    echo "@QB_SHA256@  qbittorrent-nox.part" | sha256sum -c -
     chmod +x qbittorrent-nox.part
     mv -f qbittorrent-nox.part qbittorrent-nox
     # Trigger restart
