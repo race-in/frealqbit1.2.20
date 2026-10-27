@@ -23,7 +23,7 @@ The repository must be **public** (the free ARM build runner is only free for pu
 ## Step 1: build the patched binary (once per version)
 
 1. GitHub: **Actions** tab, **Build patched qBittorrent-nox**, **Run workflow**
-2. Enter `qb_version` (for example `5.2.4`), leave the rest as it is, and run it
+2. Enter `qb_version` (for example `5.3.0`), leave the rest as it is, and run it
 3. When it finishes (a full static build takes a long time, often 1 to 3 hours) the release
    `release-<version>_v1.2.20` appears under **Releases** with `x86_64-qbittorrent-nox`, a `.sha256` file and `patches-used.txt`
 
@@ -31,7 +31,7 @@ The workflow refuses to build an unpatched binary: if no jerry048 patch applies 
 is not applied during the build, the run fails.
 
 Patches: qBittorrent uses the patch for the exact version if jerry048 has one, otherwise the newest earlier patch of the
-same major version that applies cleanly (for example the 5.2.2 patch is used for 5.2.3 and 5.2.4). `patches-used.txt` says which.
+same major version that applies cleanly (for example, a previous same-major patch is used only if it applies cleanly; `patches-used.txt` records the exact patch version). `patches-used.txt` says which.
 
 ## Step 2: install on Feral
 
@@ -44,7 +44,7 @@ wget -O ~/install-qbittorrent.sh https://raw.githubusercontent.com/race-in/freal
 With options, for example qBittorrent 4.3.9 on a 10G NVMe slot:
 
 ```bash
-wget -O ~/install-qbittorrent.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/install-qbittorrent.sh && QB_VERSION=4.3.9 LT_VERSION=1.2.20 QB_PROFILE=10g-nvme bash ~/install-qbittorrent.sh
+wget -O ~/install-qbittorrent.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/install-qbittorrent.sh && QB_VERSION=5.3.0 LT_VERSION=1.2.20 QB_PROFILE=10g-nvme bash ~/install-qbittorrent.sh
 ```
 
 At the end it prints the WebUI URL, username and a random password. **Save the password**, it is shown once.
@@ -65,7 +65,7 @@ Put variables in front of the `bash` command.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `QB_VERSION` | qBittorrent version, or `latest` (newest release of your repo) | `5.2.4` |
+| `QB_VERSION` | qBittorrent version, or `latest` (newest release of your repo) | `5.3.0` |
 | `LT_VERSION` | libtorrent version | `1.2.20` |
 | `QB_PROFILE` | tuning profile, `<1g\|10g>-<hdd\|hdd-raid0\|ssd\|nvme\|ceph>` | `1g-ssd` |
 | `QB_CACHE_MIB` | disk cache / memory limit in MiB | `1024` |
