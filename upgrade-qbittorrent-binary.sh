@@ -7,6 +7,13 @@ umask 077
 QB_VERSION="${QB_VERSION:-5.3.0}"
 LT_VERSION="${LT_VERSION:-1.2.20}"
 PATCHED_REPO="${QB_PATCHED_REPO:-race-in/frealqbit1.2.20}"
+JERRY_COMMIT="9cfc76242cd50e6dda4ce52fa259ec908a35c01b"
+JERRY_BASE="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/${JERRY_COMMIT}/Torrent%20Clients/qBittorrent/x86_64"
+JERRY_BINARY_URL="${JERRY_BASE}/qBittorrent-${QB_VERSION}%20-%20libtorrent-v${LT_VERSION}/qbittorrent-nox"
+JERRY_SHA256=""
+if [[ "$QB_VERSION" == "5.3.0" && "$LT_VERSION" == "1.2.20" ]]; then
+  JERRY_SHA256="541b7f458f4120311f3ae248abb41835c2348d17f6397cde540b009343ee1f5d"
+fi
 BIN="${HOME}/.config/feral/ns/containers/docs-qbittorrent/qbittorrent-nox"
 CONTAINER_DIR="${HOME}/.config/feral/ns/containers/docs-qbittorrent"
 BACKUP_DIR="${HOME}/qbittorrent-backup"
@@ -26,30 +33,48 @@ BASE="https://github.com/${PATCHED_REPO}/releases/download/release-${QB_VERSION}
 BINARY_URL="${BASE}/x86_64-qbittorrent-nox"
 SUM_URL="${BINARY_URL}.sha256"
 PATCHES_URL="${BASE}/patches-used.txt"
+# If our own generated release does not exist, use Jerry's already-built static binary.
+# Its URL and checksum are commit-pinned; the current known pair is 5.3.0 + libtorrent 1.2.20.
+if ! curl -fsSL --retry 1 --connect-timeout 10 "$PATCHES_URL" -o /dev/null 2>/dev/null; then
+  if [[ -n "$JERRY_SHA256" ]]; then
+    BINARY_URL="$JERRY_BINARY_URL"
+    SUM_URL=""
+    PATCHES_URL=""
+  else
+    die "No own release and no pinned Jerry binary/checksum for $QB_VERSION + libtorrent $LT_VERSION."
+  fi
+fi
 TMP="$(mktemp "${CONTAINER_DIR}/.qbittorrent-nox.new.XXXXXX")"
 SUM_TMP="${TMP}.sha256"
 PATCHES_TMP="${TMP}.patches-used"
 cleanup() { rm -f "$TMP" "$SUM_TMP" "$PATCHES_TMP"; }
 trap cleanup EXIT
 
-note "Checking release metadata for qBittorrent $QB_VERSION + libtorrent $LT_VERSION"
-curl -fsSL --retry 3 --connect-timeout 20 "$PATCHES_URL" -o "$PATCHES_TMP" ||
-  die "Release metadata unavailable. Build and publish the patched release first."
-grep -Fq "qBittorrent $QB_VERSION + libtorrent $LT_VERSION" "$PATCHES_TMP" ||
-  die "Release metadata does not match the requested versions."
-grep -Fq "jerry048/Patch" "$PATCHES_TMP" ||
-  die "Release metadata does not identify jerry048/Patch."
-grep -Fq "patches/libtorrent/$LT_VERSION" "$PATCHES_TMP" ||
-  die "Release metadata does not confirm the requested libtorrent patch."
-grep -Fq "applied cleanly to $QB_VERSION" "$PATCHES_TMP" ||
-  die "Release metadata does not confirm a compatible qBittorrent patch."
+if [[ -n "$PATCHES_URL" ]]; then
+  note "Checking own release metadata for qBittorrent $QB_VERSION + libtorrent $LT_VERSION"
+  curl -fsSL --retry 3 --connect-timeout 20 "$PATCHES_URL" -o "$PATCHES_TMP" ||
+    die "Release metadata unavailable."
+  grep -Fq "qBittorrent $QB_VERSION + libtorrent $LT_VERSION" "$PATCHES_TMP" ||
+    die "Release metadata does not match the requested versions."
+  grep -Fq "jerry048/Patch" "$PATCHES_TMP" ||
+    die "Release metadata does not identify jerry048/Patch."
+  grep -Fq "patches/libtorrent/$LT_VERSION" "$PATCHES_TMP" ||
+    die "Release metadata does not confirm the requested libtorrent patch."
+  grep -Fq "applied cleanly to $QB_VERSION" "$PATCHES_TMP" ||
+    die "Release metadata does not confirm a compatible qBittorrent patch."
+fi
 
-note "Downloading binary and published SHA-256"
+note "Downloading binary"
 curl -fsSL --retry 3 --connect-timeout 20 "$BINARY_URL" -o "$TMP" ||
   die "Could not download patched binary."
-curl -fsSL --retry 3 --connect-timeout 20 "$SUM_URL" -o "$SUM_TMP" ||
-  die "Could not download the published checksum."
-EXPECTED="$(awk 'NR==1 {print $1}' "$SUM_TMP")"
+if [[ -n "$SUM_URL" ]]; then
+  note "Downloading published SHA-256"
+  curl -fsSL --retry 3 --connect-timeout 20 "$SUM_URL" -o "$SUM_TMP" ||
+    die "Could not download the published checksum."
+  EXPECTED="$(awk 'NR==1 {print $1}' "$SUM_TMP")"
+else
+  EXPECTED="$JERRY_SHA256"
+fi
 [[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || die "Invalid SHA-256 file from release."
 printf '%s  %s\n' "$EXPECTED" "$TMP" | sha256sum -c - ||
   die "Binary checksum verification failed."
