@@ -2,9 +2,8 @@
 
 Installer for **qBittorrent-nox** on a [Feral Hosting](https://www.feralhosting.com/) slot, built for racing:
 
-- **Any qBittorrent version + libtorrent 1.2.20**, compiled with the racing patches from
-  [jerry048/Patch](https://github.com/jerry048/Patch) (both the qBittorrent and the libtorrent patch)
-- A GitHub Actions workflow in this repo builds the binary for the version you pick and publishes it as a release
+- Uses Jerry's existing, prebuilt static binaries from [jerry048/Dedicated-Seedbox](https://github.com/jerry048/Dedicated-Seedbox), with racing patches from [jerry048/Patch](https://github.com/jerry048/Patch)
+- A GitHub Actions workflow downloads Jerry's binary from his SHA-256 manifest, verifies it, and mirrors it as a release here; it does not rebuild Qt or qBittorrent
 - The installer downloads that release (SHA-256 checked) and writes a tuned `qBittorrent.conf`
   (profiles from [jerry048/Dedicated-Seedbox](https://github.com/jerry048/Dedicated-Seedbox) plus a racing overlay)
 - Same setup Feral uses for its own qBittorrent: nginx reverse proxy at `/qbittorrent/`, started by Feral's container manager
@@ -19,33 +18,30 @@ README.md
 .github/workflows/installer-checks.yml
 ```
 
-The repository must be **public** (the free ARM build runner is only free for public repositories). The build workflow is stored in `.github/workflows/build-qbittorrent.yml`, where GitHub Actions discovers it. A separate installer-check workflow runs Bash syntax validation and ShellCheck.
+The workflow automatically checks Jerry's published manifest daily and mirrors an updated binary only when its SHA-256 changes. It can also be triggered manually for a version pair already present in Jerry's manifest. A separate installer-check workflow runs Bash syntax validation and ShellCheck.
 
-## Step 1: build the patched binary (once per version)
+## Step 1: mirror Jerry's prebuilt binary (automatic)
 
-1. GitHub: **Actions** tab, **Build patched qBittorrent-nox**, **Run workflow**
-2. Enter `qb_version` (for example `5.3.0`), leave the rest as it is, and run it
-3. When it finishes (a full static build takes a long time, often 1 to 3 hours) the release
-   `release-<version>_v1.2.20` appears under **Releases** with `x86_64-qbittorrent-nox`, a `.sha256` file and `patches-used.txt`
+Jerry already provides compiled static binaries, including **qBittorrent 5.3.0 + libtorrent 1.2.20**. This repository does not need to compile Qt or qBittorrent again.
 
-The workflow refuses to build an unpatched binary: if no jerry048 patch applies cleanly to the requested version, or a patch
-is not applied during the build, the run fails.
+The workflow checks `manifests/qbittorrent.tsv` from Jerry's repository, downloads the commit-pinned x86_64 binary, validates its SHA-256 and qBittorrent version, then publishes:
 
-Patches: qBittorrent uses the patch for the exact version if jerry048 has one, otherwise the newest earlier patch of the
-same major version that applies cleanly (for example, a previous same-major patch is used only if it applies cleanly; `patches-used.txt` records the exact patch version). `patches-used.txt` says which.
+- `x86_64-qbittorrent-nox`
+- `x86_64-qbittorrent-nox.sha256`
+- `patches-used.txt`
+
+It runs automatically when this workflow is updated and checks for upstream binary changes daily. It only republishes when Jerry's published manifest points to a different binary checksum. The current release is [qBittorrent 5.3.0 + libtorrent 1.2.20](https://github.com/race-in/frealqbit1.2.20/releases/tag/release-5.3.0_v1.2.20).
 
 ## Step 2A: safely update an existing Feral install (recommended)
 
-If qBittorrent is already running and you want to keep its current WebUI password, port, configuration, nginx proxy, Feral start script, and torrent state, **do not rerun the full installer**. First ensure the patched release from Step 1 has built successfully, then run:
+If qBittorrent is already running and you want to keep its current WebUI password, port, configuration, nginx proxy, Feral start script, and torrent state, **do not rerun the full installer**. The binary-only updater first checks this repository's verified release; if the release is unavailable, it can use the commit-pinned Jerry binary with its known SHA-256 for the supported version pair.
 
 ```bash
 wget -O ~/upgrade-qbittorrent-binary.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/upgrade-qbittorrent-binary.sh
 QB_VERSION=5.3.0 LT_VERSION=1.2.20 bash ~/upgrade-qbittorrent-binary.sh
 ```
 
-The binary-only updater verifies release metadata, downloads the binary and published SHA-256, checks the checksum and qBittorrent version, saves a timestamped backup under `~/qbittorrent-backup/`, and replaces only the binary. It does **not** rewrite `qBittorrent.conf`, change WebUI credentials/port, alter nginx, remove the Feral container directory, or modify torrent/download data. It sends a graceful TERM only to a process matching the Feral binary path; Feral should auto-restart qBittorrent within about five minutes. If the release or checksum is missing/invalid, it exits before replacing the binary.
-
-This is a safe-update script; its presence does not mean a patched release has already been built. Verify the GitHub Actions run and release before running it.
+The updater verifies the binary checksum and qBittorrent version, saves a timestamped backup under `~/qbittorrent-backup/`, and replaces only the binary. It does **not** rewrite `qBittorrent.conf`, change WebUI credentials/port, alter nginx, remove the Feral container directory, or modify torrent/download data. It sends a graceful TERM only to a process matching the Feral binary path; Feral should auto-restart qBittorrent within about five minutes. If the release and the pinned fallback are unavailable, invalid or unsupported, the script exits before replacing the current binary.
 
 ## Step 2B: fresh install or full reconfiguration
 
@@ -65,11 +61,11 @@ At the end it prints the WebUI URL, username and a random password. **Save the p
 
 ### Where the binary comes from
 
-1. your own patched release (`race-in/frealqbit1.2.20`, built in step 1)
-2. the patched binaries bundled in jerry048/Dedicated-Seedbox (4.2.5 to 5.2.2), SHA-256 checked
+1. the verified release mirrored from Jerry's manifest (`race-in/frealqbit1.2.20`)
+2. the commit-pinned patched binaries bundled in jerry048/Dedicated-Seedbox (including 5.2.4/5.3.0 where supported), SHA-256 checked
 3. only with `QB_ALLOW_UNPATCHED=1`: the stock [userdocs](https://github.com/userdocs/qbittorrent-nox-static) build
 
-If none of the first two exist the installer stops and tells you to run step 1, instead of silently installing an unpatched build.
+If neither verified patched source is available the installer stops, instead of silently installing an unpatched build.
 The installer prints `Build: PATCHED ...` or `Build: NOT PATCHED ...` at the end.
 
 ## Options
@@ -124,7 +120,7 @@ The full installer is intended for a fresh install or deliberate full reconfigur
 ## Credits
 
 Patches: [jerry048/Patch](https://github.com/jerry048/Patch). Tuning profiles: [jerry048/Dedicated-Seedbox](https://github.com/jerry048/Dedicated-Seedbox).
-Build script: [userdocs/qbittorrent-nox-static](https://github.com/userdocs/qbittorrent-nox-static).
+Jerry's prebuilt-binary build chain uses [userdocs/qbittorrent-nox-static](https://github.com/userdocs/qbittorrent-nox-static).
 Container / nginx layout follows Feral Hosting's own qBittorrent installer.
 
 Use only for legal content. MIT licence for this repo's own scripts; the credited projects have their own terms.
