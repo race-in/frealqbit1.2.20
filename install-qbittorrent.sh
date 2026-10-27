@@ -5,9 +5,8 @@
 #   /qbittorrent/, container start script, binary fetched on first start).
 # * Default: qBittorrent 5.3.0 + libtorrent 1.2.20, RACING-PATCHED.
 #   Binary source order:
-#     1. your own patched build   (GitHub release of QB_PATCHED_REPO, made by the
-#        "Build patched qBittorrent-nox" workflow: jerry048/Patch for qBittorrent AND libtorrent)
-#     2. the patched binaries bundled in jerry048/Dedicated-Seedbox (older versions, SHA-256 checked)
+#     1. the verified release mirrored by this repo from Jerry's SHA-256 manifest
+#     2. commit-pinned prebuilt binaries in jerry048/Dedicated-Seedbox (SHA-256 checked)
 #     3. only with QB_ALLOW_UNPATCHED=1: the stock userdocs/qbittorrent-nox-static build
 # * qBittorrent.conf uses the tuning profiles from jerry048/Dedicated-Seedbox
 #   (https://github.com/jerry048/Dedicated-Seedbox) plus a racing overlay (QB_RACING=1).
@@ -78,9 +77,9 @@ if ! command -v python3 >/dev/null 2>&1 && ! command -v php >/dev/null 2>&1; the
 fi
 
 # ---------------------------------------------------------------- download URL
-# Source 1: userdocs/qbittorrent-nox-static (recent versions).
-# Source 2: binaries bundled in jerry048/Dedicated-Seedbox (older versions such as 4.3.9),
-#           pinned to one commit and verified with SHA-256.
+# Source 1: this repo's verified release mirrored from Jerry's manifest.
+# Source 2: commit-pinned binaries bundled in jerry048/Dedicated-Seedbox,
+#           with the published SHA-256 checked. Stock userdocs builds are opt-in only.
 JERRY_BASE="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/4eed056b1e25489eba462c4aa6ca2ae33a43a5a2/Torrent%20Clients/qBittorrent/x86_64"
 # Newer prebuilt binaries, including qBittorrent 5.3.0, are pinned to this manifest commit.
 JERRY_BASE_CURRENT="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/9cfc76242cd50e6dda4ce52fa259ec908a35c01b/Torrent%20Clients/qBittorrent/x86_64"
@@ -178,10 +177,10 @@ else
         BUILD_STATE="NOT PATCHED (stock userdocs build, QB_ALLOW_UNPATCHED=1)"
         echo "WARNING: installing the stock, unpatched build."
     else
-        die "No PATCHED build of qBittorrent $QB_VERSION + libtorrent $LT_VERSION exists yet.
-  1. Build it: https://github.com/$PATCHED_REPO/actions/workflows/build-qbittorrent.yml
-     (Run workflow, qb_version = $QB_VERSION; takes a while, then re-run this installer)
-  2. or install the stock build instead by adding QB_ALLOW_UNPATCHED=1 in front of the command."
+        die "No verified PATCHED binary is available for qBittorrent $QB_VERSION + libtorrent $LT_VERSION.
+  This workflow mirrors binaries already published in jerry048/Dedicated-Seedbox; it does not compile new versions.
+  Choose a version pair listed in https://github.com/jerry048/Dedicated-Seedbox/tree/main/Torrent%20Clients/qBittorrent
+  or explicitly allow the stock build by setting QB_ALLOW_UNPATCHED=1."
     fi
 fi
 
