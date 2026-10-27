@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "install-qbittorrent.sh"
+      - "upgrade-qbittorrent-binary.sh"
       - ".github/workflows/**"
   pull_request:
     paths:
@@ -24,7 +25,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Bash syntax check
-        run: bash -n install-qbittorrent.sh
+        run: |
+          bash -n install-qbittorrent.sh
+          bash -n upgrade-qbittorrent-binary.sh
       - name: ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
         with:
