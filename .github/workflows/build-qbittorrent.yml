@@ -79,7 +79,7 @@ jobs:
   build:
     needs: check-upstream-patches
     if: needs.check-upstream-patches.outputs.should_build == 'true'
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 350
 
     env:
@@ -224,11 +224,6 @@ jobs:
             printf '%s\n' "qbt_host_deps_repo="
             printf '%s\n\n' "qbt_linker_mold=yes"
           } > env.custom
-
-      - name: Host - Bootstrap qemu
-        uses: userdocs/actions/qemu@8cf6141527f0fd7b8403fb329907edf8dc2ad75f # v1.0.8
-        with:
-          target_arch: x86_64
 
       - name: Host - Bootstrap docker container
         uses: userdocs/actions/qbt_docker@8cf6141527f0fd7b8403fb329907edf8dc2ad75f # v1.0.8
