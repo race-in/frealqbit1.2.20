@@ -1,12 +1,8 @@
-name: Build patched qBittorrent-nox
+name: Mirror Jerry's prebuilt qBittorrent-nox
 
-# Builds a static x86_64 qbittorrent-nox for ANY qBittorrent version with libtorrent 1.2.20,
-# applying the racing patches from jerry048/Patch (qBittorrent + libtorrent), and publishes it
-# as a release of this repository:   release-<qb_version>_v1.2.20
-#
-# The build steps mirror userdocs/qbittorrent-nox-static's own Alpine CI job (x86_64, libtorrent 1.2).
-# The workflow also checks Jerry's main branch daily and rebuilds only when its patch commit changes.
-# This repository must be PUBLIC (the free ARM runner used below is only free for public repos).
+# Jerry already publishes tested static binaries in Dedicated-Seedbox.
+# This workflow verifies and mirrors that artifact; it does not compile Qt/qBittorrent.
+# Daily checks publish a new release only when Jerry's manifest checksum changes.
 
 on:
   schedule:
@@ -18,277 +14,126 @@ on:
   workflow_dispatch:
     inputs:
       qb_version:
-        description: "qBittorrent version, for example 5.3.0"
+        description: "qBittorrent version"
         required: true
         default: "5.3.0"
-      qt_version:
-        description: "Qt major version: auto (6 for qBittorrent >= 4.5, else 5), 5 or 6"
-        required: true
-        default: "auto"
       lt_version:
-        description: "libtorrent version (jerry048 ships a patch for 1.2.20)"
+        description: "libtorrent version (manifest version)"
         required: true
         default: "1.2.20"
-      script_ref:
-        description: "userdocs/qbittorrent-nox-static commit or tag that provides the build script"
-        required: true
-        default: "135fd3a10400e67923e38f68e59ad7f38eca93ad"
-      patch_ref:
-        description: "jerry048/Patch commit or branch that provides the patches"
-        required: true
-        default: "main"
 
 permissions:
   contents: write
 
 concurrency:
-  group: build-${{ github.event.inputs.qb_version }}-${{ github.event.inputs.lt_version }}
+  group: mirror-qbittorrent-${{ github.event.inputs.qb_version || '5.3.0' }}-${{ github.event.inputs.lt_version || '1.2.20' }}
   cancel-in-progress: false
 
 jobs:
-  check-upstream-patches:
+  discover:
     runs-on: ubuntu-latest
     outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-    steps:
-      - name: Build on manual/config changes; schedule only when Jerry's patch commit changes
-        id: check
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          if [[ "${EVENT_NAME}" != "schedule" ]]; then
-            echo "should_build=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          latest="$(git ls-remote https://github.com/jerry048/Patch.git refs/heads/main | awk 'NR==1 {print $1}')"
-          [[ -n "${latest}" ]] || { echo "::error::Could not resolve Jerry's latest main commit"; exit 1; }
-          tag="release-5.3.0_v1.2.20"
-          published="$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/patches-used.txt" 2>/dev/null || true)"
-          current="$(printf '%s\n' "${published}" | sed -n 's/^jerry048\/Patch commit: //p' | head -n1)"
-          echo "Jerry latest commit: ${latest}"
-          echo "Commit used in release: ${current:-none}"
-          if [[ "${latest}" != "${current}" ]]; then
-            echo "should_build=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "No Jerry patch update detected; skipping expensive build."
-            echo "should_build=false" >> "${GITHUB_OUTPUT}"
-          fi
-
-  build:
-    needs: check-upstream-patches
-    if: needs.check-upstream-patches.outputs.should_build == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 350
-
+      should_publish: ${{ steps.source.outputs.should_publish }}
+      qb_version: ${{ steps.source.outputs.qb_version }}
+      lt_version: ${{ steps.source.outputs.lt_version }}
+      source_url: ${{ steps.source.outputs.source_url }}
+      source_sha256: ${{ steps.source.outputs.source_sha256 }}
+      source_ref: ${{ steps.source.outputs.source_ref }}
+      patch_ref: ${{ steps.source.outputs.patch_ref }}
     env:
-      qbt_build_dir: "qbt-build"
-      script_name: "qbt-nox-static.bash"
-      workspace: ${{ github.workspace }}
       QB_VERSION: ${{ github.event.inputs.qb_version || '5.3.0' }}
       LT_VERSION: ${{ github.event.inputs.lt_version || '1.2.20' }}
-      QT_INPUT: ${{ github.event.inputs.qt_version || 'auto' }}
-      SCRIPT_REF: ${{ github.event.inputs.script_ref || '135fd3a10400e67923e38f68e59ad7f38eca93ad' }}
-      PATCH_REF: ${{ github.event.inputs.patch_ref || 'main' }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Validate inputs
+      - name: Find verified x86_64 binary in Jerry's manifest
+        id: source
+        shell: bash
         run: |
           set -euo pipefail
-          [[ "${QB_VERSION}" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || { echo "Invalid qb_version: ${QB_VERSION}"; exit 1; }
-          [[ "${LT_VERSION}" =~ ^1\.2\.[0-9]+$ ]]          || { echo "Only libtorrent 1.2.x is supported here: ${LT_VERSION}"; exit 1; }
-          [[ "${QT_INPUT}" =~ ^(auto|5|6)$ ]]              || { echo "Invalid qt_version: ${QT_INPUT}"; exit 1; }
-          [[ "${SCRIPT_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]      || { echo "Invalid script_ref"; exit 1; }
-          [[ "${PATCH_REF}" =~ ^[A-Za-z0-9._/-]+$ ]]       || { echo "Invalid patch_ref"; exit 1; }
-          [[ "${SCRIPT_REF}" != *".."* && "${PATCH_REF}" != *".."* ]] || { echo "Refs must not contain path traversal"; exit 1; }
+          manifest_url="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/main/manifests/qbittorrent.tsv"
+          readme_url="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/main/Torrent%20Clients/qBittorrent/README.md"
+          curl -fsSL --retry 3 --connect-timeout 20 "$manifest_url" -o /tmp/qbittorrent.tsv
+          line="$(awk -F '\t' -v qb="$QB_VERSION" -v lt="v$LT_VERSION" '$1==qb && $2==lt && $3=="amd64" && $4=="static" {print; exit}' /tmp/qbittorrent.tsv)"
+          [[ -n "$line" ]] || { echo "::error::Jerry's manifest has no static amd64 build for qBittorrent $QB_VERSION + libtorrent $LT_VERSION"; exit 1; }
+          IFS=$'\t' read -r version lt_manifest arch source_type url expected_sha family <<< "$line"
+          [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Manifest SHA-256 is invalid"; exit 1; }
+          source_ref="$(sed -n 's#^https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/\([0-9a-f]\{40\}\)/.*#\1#p' <<< "$url")"
+          [[ "$source_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Source URL is not commit-pinned"; exit 1; }
 
-          # Qt version
-          if [[ "${QT_INPUT}" == "auto" ]]; then
-            if [[ "$(printf '%s\n%s\n' "4.5.0" "${QB_VERSION}" | sort -V | head -n1)" == "4.5.0" ]]; then QT=6; else QT=5; fi
+          curl -fsSL --retry 3 --connect-timeout 20 "$readme_url" -o /tmp/qbittorrent-readme.md
+          patch_ref="$(grep -oE 'jerry048/Patch@[0-9a-f]{40}' /tmp/qbittorrent-readme.md | head -n1 | cut -d@ -f2 || true)"
+          [[ "$patch_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Could not find the patch commit pinned by Jerry's build documentation"; exit 1; }
+
+          tag="release-${QB_VERSION}_v${LT_VERSION}"
+          release_sum_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/x86_64-qbittorrent-nox.sha256"
+          current_sha="$(curl -fsSL --connect-timeout 10 "$release_sum_url" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+          if [[ "$current_sha" == "$expected_sha" ]]; then
+            should_publish=false
+            echo "Jerry's prebuilt binary is unchanged ($expected_sha); no new release is needed."
           else
-            QT="${QT_INPUT}"
+            should_publish=true
+            echo "A new/missing release is needed. Jerry binary SHA-256: $expected_sha"
           fi
-          echo "QT_VERSION=${QT}" >> "${GITHUB_ENV}"
-          echo "qBittorrent ${QB_VERSION}, libtorrent ${LT_VERSION}, Qt ${QT}"
-
-      - name: Download the userdocs build script
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://raw.githubusercontent.com/userdocs/qbittorrent-nox-static/${SCRIPT_REF}/${script_name}" -o "${script_name}"
-          chmod +x "${script_name}"
-          head -n 3 "${script_name}"
-
-      - name: Select and verify the patches
-        run: |
-          set -euo pipefail
-          mkdir -p patch-src && cd patch-src
-          git init -q jerry && cd jerry
-          git remote add origin https://github.com/jerry048/Patch
-          git fetch -q --depth 1 origin "${PATCH_REF}"
-          git checkout -q FETCH_HEAD
-          JP="$PWD/patches"
-          JERRY_PATCH_SHA="$(git rev-parse HEAD)"
-          echo "jerry048/Patch commit: ${JERRY_PATCH_SHA}"
-          echo "JERRY_PATCH_SHA=${JERRY_PATCH_SHA}" >> "${GITHUB_ENV}"
-          cd ..
-
-          git clone -q --depth 1 --branch "release-${QB_VERSION}" https://github.com/qbittorrent/qBittorrent qb-src
-          git clone -q --depth 1 --branch "v${LT_VERSION}"        https://github.com/arvidn/libtorrent       lt-src
-
-          qb_patch_file() {   # $1 = version -> prints the patch path if one exists
-            local f
-            for f in "${JP}/qbittorrent/$1/patch" "${JP}/qbittorrent/Other/$1/patch"; do
-              [[ -s "$f" ]] && { printf '%s\n' "$f"; return 0; }
-            done
-            return 1
-          }
-
-          # All qBittorrent versions that have a patch, plus the requested one, sorted ascending.
-          mapfile -t all < <( { for d in "${JP}"/qbittorrent/*/ "${JP}"/qbittorrent/Other/*/; do
-                                  v="$(basename "$d")"; [[ "$v" =~ ^[0-9] ]] && qb_patch_file "$v" >/dev/null && echo "$v"
-                                done; echo "${QB_VERSION}"; } | sort -uV )
-
-          # Candidates: same major version, <= requested, newest first. Exact match comes first.
-          major="${QB_VERSION%%.*}"
-          cands=()
-          for ((i=${#all[@]}-1; i>=0; i--)); do
-            v="${all[i]}"
-            [[ "${v%%.*}" == "${major}" ]] || continue
-            [[ "$(printf '%s\n%s\n' "$v" "${QB_VERSION}" | sort -V | tail -n1)" == "${QB_VERSION}" ]] || continue
-            qb_patch_file "$v" >/dev/null || continue
-            cands+=("$v")
-          done
-          [[ ${#cands[@]} -gt 0 ]] || { echo "::error::No jerry048 qBittorrent patch found for ${QB_VERSION}"; exit 1; }
-
-          chosen=""
-          for v in "${cands[@]:0:8}"; do
-            f="$(qb_patch_file "$v")"
-            if git -C qb-src apply --check "$f" 2>/dev/null; then chosen="$v"; QB_PATCH="$f"; break; fi
-            echo "patch for ${v} does not apply to ${QB_VERSION}, trying the next one"
-          done
-          [[ -n "${chosen}" ]] || { echo "::error::No jerry048 qBittorrent patch applies cleanly to ${QB_VERSION}. Refusing to build an unpatched binary."; exit 1; }
-
-          LT_PATCH="${JP}/libtorrent/${LT_VERSION}/patch"
-          [[ -s "${LT_PATCH}" ]] || { echo "::error::jerry048 has no libtorrent patch for ${LT_VERSION}"; exit 1; }
-          git -C lt-src apply --check "${LT_PATCH}" || { echo "::error::libtorrent patch does not apply to v${LT_VERSION}"; exit 1; }
-
-          cd "${workspace}"
-          mkdir -p "${qbt_build_dir}/patches/qbittorrent/${QB_VERSION}" "${qbt_build_dir}/patches/libtorrent/${LT_VERSION}"
-          cp "${QB_PATCH}" "${qbt_build_dir}/patches/qbittorrent/${QB_VERSION}/patch"
-          cp "${LT_PATCH}" "${qbt_build_dir}/patches/libtorrent/${LT_VERSION}/patch"
 
           {
-            echo "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION}, Qt ${QT_VERSION}, x86_64 static (musl)"
-            echo "jerry048/Patch commit: ${JERRY_PATCH_SHA}"
-            echo "qBittorrent patch : jerry048/Patch ${JERRY_PATCH_SHA} -> patches for ${chosen} (applied cleanly to ${QB_VERSION})"
-            echo "libtorrent patch  : jerry048/Patch ${PATCH_REF} -> patches/libtorrent/${LT_VERSION}"
-            echo "build script      : userdocs/qbittorrent-nox-static ${SCRIPT_REF}"
-          } | tee patches-used.txt
+            echo "should_publish=$should_publish"
+            echo "qb_version=$QB_VERSION"
+            echo "lt_version=$LT_VERSION"
+            echo "source_url=$url"
+            echo "source_sha256=$expected_sha"
+            echo "source_ref=$source_ref"
+            echo "patch_ref=$patch_ref"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Host - Create Docker template env file
-        run: |
-          {
-            printf '%s\n' "qbt_revision_url=userdocs/qbittorrent-nox-static"
-            printf '%s\n' "qbt_zlib_type=zlib"
-            printf '%s\n' "qbt_skip_icu=yes"
-            printf '%s\n' "qbt_openssl_tag=openssl-3.5.9"
-            printf '%s\n' "qbt_boost_tag="
-            printf '%s\n' "qbt_libtorrent_version=1.2"
-            printf '%s\n' "qbt_libtorrent_tag=v${LT_VERSION}"
-            printf '%s\n' "qbt_libtorrent_master_jamfile="
-            printf '%s\n' "qbt_qt_version=${QT_VERSION}"
-            printf '%s\n' "qbt_qt_tag="
-            printf '%s\n' "qbt_qbittorrent_tag=release-${QB_VERSION}"
-            printf '%s\n' "qbt_build_dir=${qbt_build_dir}"
-            printf '%s\n' "qbt_build_tool="
-            printf '%s\n' "qbt_cross_name=x86_64"
-            printf '%s\n' "qbt_mcm_url=userdocs/musl-cross-make"
-            # userdocs' own repo stays the source of patches for the other modules (openssl, qt, ...);
-            # the jerry048 patches prepared above are local and take priority for qBittorrent and libtorrent.
-            printf '%s\n' "qbt_patches_url=userdocs/qbittorrent-nox-static"
-            printf '%s\n' "qbt_workflow_files=no"
-            printf '%s\n' "qbt_cache_dir="
-            printf '%s\n' "qbt_optimise_strip="
-            printf '%s\n' "qbt_build_debug=no"
-            printf '%s\n' "qbt_standard="
-            printf '%s\n' "qbt_static_ish="
-            printf '%s\n' "qbt_optimise="
-            printf '%s\n' "qbt_with_qemu="
-            printf '%s\n' "qbt_host_deps="
-            printf '%s\n' "qbt_host_deps_repo="
-            printf '%s\n\n' "qbt_linker_mold=yes"
-          } > env.custom
-
-      - name: Host - Bootstrap docker container
-        uses: userdocs/actions/qbt_docker@8cf6141527f0fd7b8403fb329907edf8dc2ad75f # v1.0.8
-        with:
-          os_id: alpine
-          os_version_id: edge
-          additional_apps: "curl git"
-
-      - name: Docker - bootstrap_deps
-        run: docker exec "${container_name}" bash "${script_name}" bootstrap_deps
-
-      - name: Docker - Bootstrap build
-        run: docker exec "${container_name}" bash "${script_name}" -bs-a
-
-      - name: Docker - zlib
-        run: docker exec "${container_name}" bash "${script_name}" zlib
-
-      - name: Docker - iconv
-        run: docker exec "${container_name}" bash "${script_name}" iconv
-
-      - name: Docker - openssl
-        run: docker exec "${container_name}" bash "${script_name}" openssl
-
-      - name: Docker - boost
-        run: docker exec "${container_name}" bash "${script_name}" boost
-
-      - name: Docker - libtorrent (patched)
-        run: |
-          set -o pipefail
-          docker exec "${container_name}" bash "${script_name}" libtorrent 2>&1 | tee build-libtorrent.log
-          grep -q "Patch applied successfully" build-libtorrent.log || { echo "::error::the libtorrent patch was NOT applied"; exit 1; }
-
-      - name: Docker - qtbase
-        run: docker exec "${container_name}" bash "${script_name}" qtbase
-
-      - name: Docker - qttools
-        run: docker exec "${container_name}" bash "${script_name}" qttools
-
-      - name: Docker - qbittorrent (patched)
-        run: |
-          set -o pipefail
-          docker exec "${container_name}" bash "${script_name}" qbittorrent 2>&1 | tee build-qbittorrent.log
-          grep -q "Patch applied successfully" build-qbittorrent.log || { echo "::error::the qBittorrent patch was NOT applied"; exit 1; }
-          ls -l "${qbt_build_dir}/completed/"
-
-      - name: Prepare release files
+  publish:
+    needs: discover
+    if: needs.discover.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      QB_VERSION: ${{ needs.discover.outputs.qb_version }}
+      LT_VERSION: ${{ needs.discover.outputs.lt_version }}
+      SOURCE_URL: ${{ needs.discover.outputs.source_url }}
+      SOURCE_SHA256: ${{ needs.discover.outputs.source_sha256 }}
+      SOURCE_REF: ${{ needs.discover.outputs.source_ref }}
+      PATCH_REF: ${{ needs.discover.outputs.patch_ref }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download and verify Jerry's prebuilt binary
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p out
-          cp "${qbt_build_dir}/completed/qbittorrent-nox" out/x86_64-qbittorrent-nox
-          cp patches-used.txt out/patches-used.txt
-          cd out
-          sha256sum x86_64-qbittorrent-nox | tee x86_64-qbittorrent-nox.sha256
+          curl -fsSL --retry 3 --connect-timeout 20 "$SOURCE_URL" -o out/x86_64-qbittorrent-nox
+          printf '%s  %s\n' "$SOURCE_SHA256" out/x86_64-qbittorrent-nox | sha256sum -c -
+          chmod 700 out/x86_64-qbittorrent-nox
+          version_output="$(out/x86_64-qbittorrent-nox --version 2>&1)"
+          printf '%s\n' "$version_output"
+          grep -Fq "qBittorrent v$QB_VERSION" <<< "$version_output" || {
+            echo "::error::Prebuilt binary version does not match $QB_VERSION"; exit 1;
+          }
+          sha256sum out/x86_64-qbittorrent-nox | tee out/x86_64-qbittorrent-nox.sha256
+          {
+            echo "qBittorrent $QB_VERSION + libtorrent $LT_VERSION, static x86_64 (Jerry prebuilt binary)"
+            echo "Source: jerry048/Dedicated-Seedbox@$SOURCE_REF"
+            echo "jerry048/Patch commit: $PATCH_REF"
+            echo "qBittorrent patch : jerry048/Patch $PATCH_REF -> patches for $QB_VERSION (applied cleanly to $QB_VERSION)"
+            echo "libtorrent patch  : jerry048/Patch $PATCH_REF -> patches/libtorrent/$LT_VERSION"
+            echo "Source SHA-256 verified against Jerry's manifests/qbittorrent.tsv"
+          } | tee out/patches-used.txt
 
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+      - name: Publish verified release
+        shell: bash
         run: |
           set -euo pipefail
           tag="release-${QB_VERSION}_v${LT_VERSION}"
-          notes="qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION}, static x86_64, with the jerry048/Patch racing patches. See patches-used.txt."
-          if gh release view "${tag}" >/dev/null 2>&1; then
-            gh release upload "${tag}" out/* --clobber
+          notes="Mirrored prebuilt qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} from jerry048/Dedicated-Seedbox. The binary was verified against Jerry's pinned manifest SHA-256. No local compilation was performed."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" out/* --clobber
+            gh release edit "$tag" --title "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} (Jerry prebuilt)" --notes "$notes"
           else
-            gh release create "${tag}" out/* --title "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} (patched)" --notes "${notes}" --target "${GITHUB_SHA}"
+            gh release create "$tag" out/* --title "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} (Jerry prebuilt)" --notes "$notes" --target "${GITHUB_SHA}"
           fi
-          echo "Released: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag}"
+          echo "Published: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
