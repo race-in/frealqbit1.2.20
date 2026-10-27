@@ -157,7 +157,7 @@ else
     elif [[ "$QB_VERSION" != "latest" ]] && jerry_sha="$(jerry_sha256 "$QB_VERSION" "$LT_VERSION")"; then
         echo "No release for qBittorrent $QB_VERSION + libtorrent $LT_VERSION in $PATCHED_REPO; using the patched jerry048/Dedicated-Seedbox build."
         JERRY_SOURCE_BASE="$JERRY_BASE"
-        case "$QB_VERSION_$LT_VERSION" in
+        case "${QB_VERSION}_${LT_VERSION}" in
             5.2.4_1.2.20|5.2.4_2.0.15|5.3.0_1.2.20|5.3.0_2.1.2) JERRY_SOURCE_BASE="$JERRY_BASE_CURRENT" ;;
         esac
         URL="$JERRY_SOURCE_BASE/qBittorrent-${QB_VERSION}%20-%20libtorrent-v${LT_VERSION}/qbittorrent-nox"
