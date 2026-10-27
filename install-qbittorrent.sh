@@ -3,7 +3,7 @@
 #
 # * Same mechanism as Feral's own qBittorrent installer (nginx reverse proxy at
 #   /qbittorrent/, container start script, binary fetched on first start).
-# * Default: qBittorrent 5.2.4 + libtorrent 1.2.20, RACING-PATCHED.
+# * Default: qBittorrent 5.3.0 + libtorrent 1.2.20, RACING-PATCHED.
 #   Binary source order:
 #     1. your own patched build   (GitHub release of QB_PATCHED_REPO, made by the
 #        "Build patched qBittorrent-nox" workflow: jerry048/Patch for qBittorrent AND libtorrent)
@@ -16,7 +16,7 @@
 #   wget -O ~/install-qbittorrent.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/install-qbittorrent.sh && bash ~/install-qbittorrent.sh
 #
 # Optional environment variables (put them in front of the bash command):
-#   QB_VERSION          qBittorrent version, or "latest"            (default: 5.2.4)
+#   QB_VERSION          qBittorrent version, or "latest"            (default: 5.3.0)
 #   LT_VERSION          libtorrent version                          (default: 1.2.20)
 #   QB_PROFILE          tuning profile                              (default: 1g-ssd)
 #                       1g-hdd 1g-hdd-raid0 1g-ssd 1g-nvme 1g-ceph
@@ -35,7 +35,7 @@
 # Example:
 #   QB_PROFILE=1g-nvme QB_CACHE_MIB=2048 bash ~/install-qbittorrent.sh
 
-QB_VERSION="${QB_VERSION:-5.2.4}"
+QB_VERSION="${QB_VERSION:-5.3.0}"
 LT_VERSION="${LT_VERSION:-1.2.20}"
 QB_PROFILE="${QB_PROFILE:-1g-ssd}"
 QB_CACHE_MIB="${QB_CACHE_MIB:-1024}"

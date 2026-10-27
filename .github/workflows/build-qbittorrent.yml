@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       qb_version:
-        description: "qBittorrent version, for example 5.2.4"
+        description: "qBittorrent version, for example 5.3.0"
         required: true
-        default: "5.2.4"
+        default: "5.3.0"
       qt_version:
         description: "Qt major version: auto (6 for qBittorrent >= 4.5, else 5), 5 or 6"
         required: true
@@ -30,7 +30,7 @@ on:
       patch_ref:
         description: "jerry048/Patch commit or branch that provides the patches"
         required: true
-        default: "ab19ebe2b6bfc98bdc3a59ad02281a45c47be786"
+        default: "d928969c184d9f99de528151d0759c726ff7d2de"
 
 permissions:
   contents: write
