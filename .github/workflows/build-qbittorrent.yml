@@ -60,7 +60,7 @@ jobs:
           [[ "$source_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Source URL is not commit-pinned"; exit 1; }
 
           curl -fsSL --retry 3 --connect-timeout 20 "$readme_url" -o /tmp/qbittorrent-readme.md
-          patch_ref="$(grep -oE 'jerry048/Patch@[0-9a-f]{40}' /tmp/qbittorrent-readme.md | head -n1 | cut -d@ -f2 || true)"
+          patch_ref="$(grep -oE 'https://github.com/jerry048/Patch/tree/[0-9a-f]{40}/patches' /tmp/qbittorrent-readme.md | head -n1 | sed -E 's#^.*/tree/([0-9a-f]{40})/patches$#\1#' || true)"
           [[ "$patch_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Could not find the patch commit pinned by Jerry's build documentation"; exit 1; }
 
           tag="release-${QB_VERSION}_v${LT_VERSION}"
