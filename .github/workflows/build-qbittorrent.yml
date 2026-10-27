@@ -5,10 +5,16 @@ name: Build patched qBittorrent-nox
 # as a release of this repository:   release-<qb_version>_v1.2.20
 #
 # The build steps mirror userdocs/qbittorrent-nox-static's own Alpine CI job (x86_64, libtorrent 1.2).
-# Run it from the "Actions" tab -> "Build patched qBittorrent-nox" -> "Run workflow".
+# The workflow also checks Jerry's main branch daily and rebuilds only when its patch commit changes.
 # This repository must be PUBLIC (the free ARM runner used below is only free for public repos).
 
 on:
+  schedule:
+    - cron: "23 4 * * *"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-qbittorrent.yml"
   workflow_dispatch:
     inputs:
       qb_version:
@@ -30,7 +36,7 @@ on:
       patch_ref:
         description: "jerry048/Patch commit or branch that provides the patches"
         required: true
-        default: "d928969c184d9f99de528151d0759c726ff7d2de"
+        default: "main"
 
 permissions:
   contents: write
@@ -40,7 +46,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  check-upstream-patches:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Build on manual/config changes; schedule only when Jerry's patch commit changes
+        id: check
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" != "schedule" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          latest="$(git ls-remote https://github.com/jerry048/Patch.git refs/heads/main | awk 'NR==1 {print $1}')"
+          [[ -n "${latest}" ]] || { echo "::error::Could not resolve Jerry's latest main commit"; exit 1; }
+          tag="release-5.3.0_v1.2.20"
+          published="$(curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/patches-used.txt" 2>/dev/null || true)"
+          current="$(printf '%s\n' "${published}" | sed -n 's/^jerry048\/Patch commit: //p' | head -n1)"
+          echo "Jerry latest commit: ${latest}"
+          echo "Commit used in release: ${current:-none}"
+          if [[ "${latest}" != "${current}" ]]; then
+            echo "should_build=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "No Jerry patch update detected; skipping expensive build."
+            echo "should_build=false" >> "${GITHUB_OUTPUT}"
+          fi
+
   build:
+    needs: check-upstream-patches
+    if: needs.check-upstream-patches.outputs.should_build == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 350
 
@@ -48,11 +86,11 @@ jobs:
       qbt_build_dir: "qbt-build"
       script_name: "qbt-nox-static.bash"
       workspace: ${{ github.workspace }}
-      QB_VERSION: ${{ github.event.inputs.qb_version }}
-      LT_VERSION: ${{ github.event.inputs.lt_version }}
-      QT_INPUT: ${{ github.event.inputs.qt_version }}
-      SCRIPT_REF: ${{ github.event.inputs.script_ref }}
-      PATCH_REF: ${{ github.event.inputs.patch_ref }}
+      QB_VERSION: ${{ github.event.inputs.qb_version || '5.3.0' }}
+      LT_VERSION: ${{ github.event.inputs.lt_version || '1.2.20' }}
+      QT_INPUT: ${{ github.event.inputs.qt_version || 'auto' }}
+      SCRIPT_REF: ${{ github.event.inputs.script_ref || '135fd3a10400e67923e38f68e59ad7f38eca93ad' }}
+      PATCH_REF: ${{ github.event.inputs.patch_ref || 'main' }}
 
     steps:
       - name: Checkout
@@ -95,7 +133,9 @@ jobs:
           git fetch -q --depth 1 origin "${PATCH_REF}"
           git checkout -q FETCH_HEAD
           JP="$PWD/patches"
-          echo "jerry048/Patch @ $(git rev-parse HEAD)"
+          JERRY_PATCH_SHA="$(git rev-parse HEAD)"
+          echo "jerry048/Patch commit: ${JERRY_PATCH_SHA}"
+          echo "JERRY_PATCH_SHA=${JERRY_PATCH_SHA}" >> "${GITHUB_ENV}"
           cd ..
 
           git clone -q --depth 1 --branch "release-${QB_VERSION}" https://github.com/qbittorrent/qBittorrent qb-src
@@ -145,7 +185,8 @@ jobs:
 
           {
             echo "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION}, Qt ${QT_VERSION}, x86_64 static (musl)"
-            echo "qBittorrent patch : jerry048/Patch ${PATCH_REF} -> patches for ${chosen} (applied cleanly to ${QB_VERSION})"
+            echo "jerry048/Patch commit: ${JERRY_PATCH_SHA}"
+            echo "qBittorrent patch : jerry048/Patch ${JERRY_PATCH_SHA} -> patches for ${chosen} (applied cleanly to ${QB_VERSION})"
             echo "libtorrent patch  : jerry048/Patch ${PATCH_REF} -> patches/libtorrent/${LT_VERSION}"
             echo "build script      : userdocs/qbittorrent-nox-static ${SCRIPT_REF}"
           } | tee patches-used.txt
