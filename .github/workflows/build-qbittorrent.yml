@@ -25,9 +25,11 @@ on:
 permissions:
   contents: write
 
+# Share the legacy build workflow's concurrency key so a pending/active compile run
+# is cancelled as soon as this replacement mirror workflow starts.
 concurrency:
-  group: mirror-qbittorrent-${{ github.event.inputs.qb_version || '5.3.0' }}-${{ github.event.inputs.lt_version || '1.2.20' }}
-  cancel-in-progress: false
+  group: build-${{ github.event.inputs.qb_version }}-${{ github.event.inputs.lt_version }}
+  cancel-in-progress: true
 
 jobs:
   discover:
