@@ -82,6 +82,8 @@ fi
 # Source 2: binaries bundled in jerry048/Dedicated-Seedbox (older versions such as 4.3.9),
 #           pinned to one commit and verified with SHA-256.
 JERRY_BASE="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/4eed056b1e25489eba462c4aa6ca2ae33a43a5a2/Torrent%20Clients/qBittorrent/x86_64"
+# Newer prebuilt binaries, including qBittorrent 5.3.0, are pinned to this manifest commit.
+JERRY_BASE_CURRENT="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/9cfc76242cd50e6dda4ce52fa259ec908a35c01b/Torrent%20Clients/qBittorrent/x86_64"
 
 # jerry_sha256 <qb_version> <libtorrent_version>  (x86_64 builds only)
 jerry_sha256() {
@@ -100,6 +102,10 @@ jerry_sha256() {
         5.1.4_2.0.13) echo "fe4a0f1fe6e38e2797f5488ace2780fe96ed9916debea2b38ac41b8d18b8fda7" ;;
         5.2.2_1.2.20) echo "c4c2dcbf396f57e411a6fefe1ed092397ee3e3372ae6f680f44bcca792d2f043" ;;
         5.2.2_2.0.13) echo "8913a7cc3a30ef2ce1104165c2b8bf0eed19994bb7c0741d45376079710d84b6" ;;
+        5.2.4_1.2.20) echo "cb798256d466258ff88aa233ccc1653196aa0d1d6fa3de62f1d2f52bcd65c50d" ;;
+        5.2.4_2.0.15) echo "fa92856f494ce2a3284a2ee9daad71e1efd7ed5c5d106e024855cbbf4faaf948" ;;
+        5.3.0_1.2.20) echo "541b7f458f4120311f3ae248abb41835c2348d17f6397cde540b009343ee1f5d" ;;
+        5.3.0_2.1.2) echo "9c5873f88fb5b8c43e40fbb79c797f293ed8ac3bbd0b73ccdb21318494f6cab0" ;;
         *) return 1 ;;
     esac
 }
@@ -150,9 +156,13 @@ else
         fi
     elif [[ "$QB_VERSION" != "latest" ]] && jerry_sha="$(jerry_sha256 "$QB_VERSION" "$LT_VERSION")"; then
         echo "No release for qBittorrent $QB_VERSION + libtorrent $LT_VERSION in $PATCHED_REPO; using the patched jerry048/Dedicated-Seedbox build."
-        URL="$JERRY_BASE/qBittorrent-${QB_VERSION}%20-%20libtorrent-v${LT_VERSION}/qbittorrent-nox"
+        JERRY_SOURCE_BASE="$JERRY_BASE"
+        case "$QB_VERSION_$LT_VERSION" in
+            5.2.4_1.2.20|5.2.4_2.0.15|5.3.0_1.2.20|5.3.0_2.1.2) JERRY_SOURCE_BASE="$JERRY_BASE_CURRENT" ;;
+        esac
+        URL="$JERRY_SOURCE_BASE/qBittorrent-${QB_VERSION}%20-%20libtorrent-v${LT_VERSION}/qbittorrent-nox"
         [[ -n "$QB_SHA256" ]] || QB_SHA256="$jerry_sha"
-        BUILD_STATE="PATCHED (binary bundled in jerry048/Dedicated-Seedbox)"
+        BUILD_STATE="PATCHED (binary bundled in jerry048/Dedicated-Seedbox; manifest SHA-256 verified)"
     elif [[ "$ALLOW_UNPATCHED" == "1" ]]; then
         if [[ "$QB_VERSION" == "latest" ]]; then
             URL="https://github.com/$REPO/releases/latest/download/x86_64-qbittorrent-nox"
