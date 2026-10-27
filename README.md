@@ -13,6 +13,7 @@ Installer for **qBittorrent-nox** on a [Feral Hosting](https://www.feralhosting.
 
 ```
 install-qbittorrent.sh
+upgrade-qbittorrent-binary.sh
 README.md
 .github/workflows/build-qbittorrent.yml
 .github/workflows/installer-checks.yml
@@ -33,7 +34,20 @@ is not applied during the build, the run fails.
 Patches: qBittorrent uses the patch for the exact version if jerry048 has one, otherwise the newest earlier patch of the
 same major version that applies cleanly (for example, a previous same-major patch is used only if it applies cleanly; `patches-used.txt` records the exact patch version). `patches-used.txt` says which.
 
-## Step 2: install on Feral
+## Step 2A: safely update an existing Feral install (recommended)
+
+If qBittorrent is already running and you want to keep its current WebUI password, port, configuration, nginx proxy, Feral start script, and torrent state, **do not rerun the full installer**. First ensure the patched release from Step 1 has built successfully, then run:
+
+```bash
+wget -O ~/upgrade-qbittorrent-binary.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/upgrade-qbittorrent-binary.sh
+QB_VERSION=5.3.0 LT_VERSION=1.2.20 bash ~/upgrade-qbittorrent-binary.sh
+```
+
+The binary-only updater verifies release metadata, downloads the binary and published SHA-256, checks the checksum and qBittorrent version, saves a timestamped backup under `~/qbittorrent-backup/`, and replaces only the binary. It does **not** rewrite `qBittorrent.conf`, change WebUI credentials/port, alter nginx, remove the Feral container directory, or modify torrent/download data. It sends a graceful TERM only to a process matching the Feral binary path; Feral should auto-restart qBittorrent within about five minutes. If the release or checksum is missing/invalid, it exits before replacing the binary.
+
+This is a safe-update script; its presence does not mean a patched release has already been built. Verify the GitHub Actions run and release before running it.
+
+## Step 2B: fresh install or full reconfiguration
 
 nginx must be enabled on your slot first: <https://www.feralhosting.com/wiki/software/nginx>
 
@@ -47,8 +61,7 @@ With options, for example qBittorrent 4.3.9 on a 10G NVMe slot:
 wget -O ~/install-qbittorrent.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/install-qbittorrent.sh && QB_VERSION=5.3.0 LT_VERSION=1.2.20 QB_PROFILE=10g-nvme bash ~/install-qbittorrent.sh
 ```
 
-At the end it prints the WebUI URL, username and a random password. **Save the password**, it is shown once.
-qBittorrent starts within about five minutes.
+At the end it prints the WebUI URL, username and a random password. **Save the password**, it is shown once. A full installer run regenerates the configuration and WebUI password, so use Step 2A for a binary-only update. qBittorrent starts within about five minutes.
 
 ### Where the binary comes from
 
@@ -99,8 +112,7 @@ in the WebUI options (behind Feral's nginx proxy it may need the Host header han
 
 ## Uninstall / reinstall
 
-Run the installer again with new variables: it stops qBittorrent, backs up `qBittorrent.conf`
-(`qBittorrent.conf.bak.<date>`), and generates a **new** WebUI password. Torrents and downloads are not touched.
+The full installer is intended for a fresh install or deliberate full reconfiguration. It backs up `qBittorrent.conf`, but regenerates its contents and creates a **new** WebUI password. Use the binary-only updater above if you want to preserve existing settings.
 
 | Path | What |
 |---|---|
