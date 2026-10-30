@@ -275,6 +275,9 @@ case "$QB_VERSION" in
     4.2.*|4.3.*) CONF_FAMILY="classic_pbkdf2" ;;
     *)           CONF_FAMILY="modern_pbkdf2" ;;
 esac
+if [[ -n "${JERRY_CONFIG_FAMILY:-}" && "$JERRY_CONFIG_FAMILY" != "$CONF_FAMILY" ]]; then
+    die "Jerry manifest config family ($JERRY_CONFIG_FAMILY) does not match qBittorrent $QB_VERSION ($CONF_FAMILY)."
+fi
 classic_extra=()
 if [[ "$CONF_FAMILY" == "modern_pbkdf2" ]]; then
     [[ -n "$QB_INCOMING_PORT" ]]   && session_extra+=("Session\\Port=$QB_INCOMING_PORT")
