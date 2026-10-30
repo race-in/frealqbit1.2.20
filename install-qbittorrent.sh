@@ -15,11 +15,11 @@
 #   wget -O ~/install-qbittorrent.sh https://raw.githubusercontent.com/race-in/frealqbit1.2.20/main/install-qbittorrent.sh && bash ~/install-qbittorrent.sh
 #
 # Optional environment variables (put them in front of the bash command):
-#   QB_VERSION          qBittorrent version, or "latest"            (default: 5.3.0)
+#   QB_VERSION          qBittorrent version, or newest for selected libtorrent (default: 5.3.0)
 #   LT_VERSION          libtorrent version                          (default: 1.2.20)
 #   QB_PROFILE          tuning profile                              (default: 1g-ssd)
 #                       1g-hdd 1g-hdd-raid0 1g-ssd 1g-nvme 1g-ceph
-#                       10g-hdd 10g-hdd-raid0 10g-ssd 10g-nvme 10g-ceph
+#                       over1g-hdd over1g-hdd-raid0 over1g-ssd over1g-nvme over1g-ceph (10g aliases)
 #   QB_CACHE_MIB        disk cache / working-set limit in MiB       (default: 1024)
 #   QB_WEB_PORT         local WebUI port behind nginx               (default: 9001)
 #   QB_INCOMING_PORT    fixed incoming peer port                    (default: qBittorrent picks one)
