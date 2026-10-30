@@ -126,7 +126,7 @@ jerry_manifest_entry() {
     rm -f "$tmp"
     [[ -n "$row" ]] || return 1
     IFS=$'\t' read -r version manifest_lt arch source url sha family <<<"$row"
-    [[ "$version" == "$qb" && "$arch" == "amd64" && "$source" == "static" ]] || return 1
+    [[ "$version" == "$qb" && "$manifest_lt" == "$lt_field" && "$arch" == "amd64" && "$source" == "static" ]] || return 1
     [[ "$url" =~ ^https://raw\.githubusercontent\.com/jerry048/Dedicated-Seedbox/[0-9a-f]{40}/ ]] || return 1
     [[ "$sha" =~ ^[0-9a-fA-F]{64}$ ]] || return 1
     case "$family" in classic_pbkdf2|modern_pbkdf2|legacy_41) ;; *) return 1 ;; esac
