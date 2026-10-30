@@ -29,9 +29,9 @@ config_family() {
 
 manifest_family() {
   local v="$1"
-  if version_ge "$v" "4.4.0"; then printf 'modern_pbkdf2\n'
-  elif version_ge "$v" "4.2.0"; then printf 'classic_pbkdf2\\n'
-  elif version_ge "$v" "4.1.0"; then printf 'legacy_41\\n'
+  if version_ge "$v" "4.4.0"; then printf '%s\n' 'modern_pbkdf2'
+  elif version_ge "$v" "4.2.0"; then printf '%s\n' 'classic_pbkdf2'
+  elif version_ge "$v" "4.1.0"; then printf '%s\n' 'legacy_41'
   else return 1; fi
 }
 fetch_text() { curl -fsSL --retry 3 --connect-timeout 20 "$1"; }
