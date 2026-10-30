@@ -130,7 +130,7 @@ jerry_manifest_entry() {
     [[ "$url" =~ ^https://raw\.githubusercontent\.com/jerry048/Dedicated-Seedbox/[0-9a-f]{40}/ ]] || return 1
     [[ "$sha" =~ ^[0-9a-fA-F]{64}$ ]] || return 1
     case "$family" in classic_pbkdf2|modern_pbkdf2|legacy_41) ;; *) return 1 ;; esac
-    printf '%s\t%s\t%s\n' "$url" "\${sha,,}" "$family"
+    printf '%s\t%s\t%s\n' "$url" "${sha,,}" "$family"
 }
 
 BUILD_STATE=""
@@ -374,7 +374,7 @@ fi
             echo
             if version_ge "$QB_VERSION" "5.3.0"; then
                 echo "[WebUI]"
-                echo "\${PASSWORD_CONFIG_LINE#WebUI\\}"
+                echo "${PASSWORD_CONFIG_LINE#WebUI\\}"
                 echo "Port=$QB_WEB_PORT"
                 echo "Username=$(whoami)"
             else
