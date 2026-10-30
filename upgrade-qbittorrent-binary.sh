@@ -29,7 +29,7 @@ config_family() {
 
 manifest_family() {
   local v="$1"
-  if version_ge "$v" "4.4.0"; then printf 'modern_pbkdf2\\n'
+  if version_ge "$v" "4.4.0"; then printf 'modern_pbkdf2\n'
   elif version_ge "$v" "4.2.0"; then printf 'classic_pbkdf2\\n'
   elif version_ge "$v" "4.1.0"; then printf 'legacy_41\\n'
   else return 1; fi
@@ -86,7 +86,7 @@ else
   ' "$MANIFEST_TMP")"
   [[ -n "$ROW" ]] || die "Jerry's manifest has no static amd64 build for $QB_VERSION + libtorrent $LT_VERSION."
   IFS=$'\t' read -r M_QB M_LT M_ARCH M_SOURCE BINARY_URL EXPECTED M_FAMILY <<<"$ROW"
-  [[ "$M_QB" == "$QB_VERSION" && "$M_ARCH" == "amd64" && "$M_SOURCE" == "static" ]] || die "Manifest row identity check failed."
+  [[ "$M_QB" == "$QB_VERSION" && "$M_LT" == "$LT_FIELD" && "$M_ARCH" == "amd64" && "$M_SOURCE" == "static" ]] || die "Manifest row identity check failed."
   [[ "$BINARY_URL" =~ ^https://raw\.githubusercontent\.com/jerry048/Dedicated-Seedbox/[0-9a-f]{40}/ ]] || die "Manifest URL is not commit-pinned."
   [[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || die "Manifest SHA-256 is invalid."
   case "$M_FAMILY" in legacy_41|classic_pbkdf2|modern_pbkdf2) ;; *) die "Unknown manifest config family: $M_FAMILY" ;; esac
