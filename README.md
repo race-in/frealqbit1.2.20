@@ -101,7 +101,7 @@ Set variables before the `bash` command.
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `QB_VERSION` | qBittorrent version, or `latest` for this repo's latest release | `5.3.0` |
+| `QB_VERSION` | qBittorrent version, or `latest` for the newest upstream build matching `LT_VERSION` | `5.3.0` |
 | `LT_VERSION` | libtorrent version | `1.2.20` |
 | `QB_PROFILE` | `<1g\|over1g\|10g>-<hdd\|hdd-raid0\|ssd\|nvme\|ceph>`; `10g` is an alias for `over1g` | `1g-ssd` |
 | `QB_CACHE_MIB` | disk cache / memory working set in MiB | `1024` |
