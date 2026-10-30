@@ -39,7 +39,6 @@ LT_VERSION="${LT_VERSION:-1.2.20}"
 LT_VERSION="${LT_VERSION#libtorrent-}"
 LT_VERSION="${LT_VERSION#v}"
 [[ "$LT_VERSION" == "1_1_14" ]] && LT_VERSION="1.1.14"
-[[ "$QB_VERSION" == "latest" || "$QB_VERSION" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || { echo "ERROR: invalid QB_VERSION: $QB_VERSION" >&2; exit 1; }
 [[ "$LT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "ERROR: invalid LT_VERSION: $LT_VERSION" >&2; exit 1; }
 QB_PROFILE="${QB_PROFILE:-1g-ssd}"
 case "$QB_PROFILE" in 10g-*) QB_PROFILE="over1g-${QB_PROFILE#10g-}" ;; esac
@@ -94,16 +93,34 @@ url_exists() {
     fi
 }
 
-case "$QB_VERSION" in
-    4.0.*|3.*) die "qBittorrent $QB_VERSION is not supported by Jerry's patched static builds." ;;
-esac
-
 fetch_text() {
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL --max-time 30 "$1" 2>/dev/null
     else
         wget -qO- --timeout=30 "$1" 2>/dev/null
     fi
+}
+
+# Resolve "latest" as the highest qBittorrent version available for the
+# selected libtorrent pair, rather than relying on the newest GitHub release tag.
+jerry_latest_version() {
+    local lt="$1" lt_field tmp latest
+    case "$lt" in
+        1.1.14) lt_field="1_1_14" ;;
+        *) lt_field="v$lt" ;;
+    esac
+    tmp="$(mktemp)" || return 1
+    if ! fetch_text "$JERRY_MANIFEST_URL" >"$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    latest="$(awk -F '\t' -v lt="$lt_field" '
+        $0 ~ /^#/ || NF < 7 { next }
+        $2 == lt && $3 == "amd64" && $4 == "static" { print $1 }
+    ' "$tmp" | sort -Vu | tail -n1)"
+    rm -f "$tmp"
+    [[ -n "$latest" ]] || return 1
+    printf '%s\n' "$latest"
 }
 
 # Resolve an exact amd64 artifact from Jerry's manifest.
@@ -132,6 +149,16 @@ jerry_manifest_entry() {
     case "$family" in classic_pbkdf2|modern_pbkdf2|legacy_41) ;; *) return 1 ;; esac
     printf '%s\t%s\t%s\n' "$url" "${sha,,}" "$family"
 }
+
+if [[ "$QB_VERSION" == "latest" ]]; then
+    QB_VERSION="$(jerry_latest_version "$LT_VERSION")" ||
+        die "No Jerry qBittorrent build is available for libtorrent $LT_VERSION."
+fi
+[[ "$QB_VERSION" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] ||
+    die "Invalid or unsupported QB_VERSION: $QB_VERSION"
+case "$QB_VERSION" in
+    4.0.*|3.*) die "qBittorrent $QB_VERSION is not supported by Jerry's patched static builds." ;;
+esac
 
 BUILD_STATE=""
 if [[ -n "${QB_URL:-}" ]]; then
