@@ -126,7 +126,6 @@ jobs:
 
   publish:
     needs: discover
-    if: ${{ matrix.publish == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -148,6 +147,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Download and verify Jerry's prebuilt binary
+        if: ${{ matrix.publish == true }}
         shell: bash
         run: |
           set -euo pipefail
@@ -172,6 +172,7 @@ jobs:
           } | tee out/patches-used.txt
 
       - name: Publish verified release
+        if: ${{ matrix.publish == true }}
         shell: bash
         run: |
           set -euo pipefail
