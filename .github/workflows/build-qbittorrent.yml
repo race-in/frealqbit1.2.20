@@ -1,9 +1,7 @@
-name: Mirror Jerry's prebuilt qBittorrent-nox
+name: Mirror Jerry's verified qBittorrent builds
 
-# Jerry already publishes tested static binaries in Dedicated-Seedbox.
-# This workflow verifies and mirrors that artifact; it does not compile Qt/qBittorrent.
-# Daily checks publish a new release only when Jerry's manifest checksum changes.
-
+# Mirror every supported amd64 build in Jerry's manifest. The workflow never compiles
+# qBittorrent; it validates a commit-pinned prebuilt binary and its SHA-256.
 on:
   schedule:
     - cron: "23 4 * * *"
@@ -14,92 +12,138 @@ on:
   workflow_dispatch:
     inputs:
       qb_version:
-        description: "qBittorrent version"
-        required: true
-        default: "5.3.0"
+        description: "Optional qBittorrent version filter (leave empty for all supported builds)"
+        required: false
+        default: ""
       lt_version:
-        description: "libtorrent version (manifest version)"
-        required: true
-        default: "1.2.20"
+        description: "Optional libtorrent version filter, e.g. 1.2.20 (leave empty for all)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
-# Share the legacy build workflow's concurrency key so a pending/active compile run
-# is cancelled as soon as this replacement mirror workflow starts.
 concurrency:
-  group: build-${{ github.event.inputs.qb_version }}-${{ github.event.inputs.lt_version }}
+  group: qbittorrent-manifest-mirror-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   discover:
     runs-on: ubuntu-latest
     outputs:
-      should_publish: ${{ steps.source.outputs.should_publish }}
-      qb_version: ${{ steps.source.outputs.qb_version }}
-      lt_version: ${{ steps.source.outputs.lt_version }}
-      source_url: ${{ steps.source.outputs.source_url }}
-      source_sha256: ${{ steps.source.outputs.source_sha256 }}
-      source_ref: ${{ steps.source.outputs.source_ref }}
-      patch_ref: ${{ steps.source.outputs.patch_ref }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     env:
-      QB_VERSION: ${{ github.event.inputs.qb_version || '5.3.0' }}
-      LT_VERSION: ${{ github.event.inputs.lt_version || '1.2.20' }}
+      QB_VERSION_FILTER: ${{ github.event.inputs.qb_version || '' }}
+      LT_VERSION_FILTER: ${{ github.event.inputs.lt_version || '' }}
     steps:
-      - name: Find verified x86_64 binary in Jerry's manifest
-        id: source
+      - name: Build the amd64 release matrix from Jerry's manifest
+        id: matrix
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           manifest_url="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/main/manifests/qbittorrent.tsv"
           readme_url="https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/main/Torrent%20Clients/qBittorrent/README.md"
-          curl -fsSL --retry 3 --connect-timeout 20 "$manifest_url" -o /tmp/qbittorrent.tsv
-          line="$(awk -F '\t' -v qb="$QB_VERSION" -v lt="v$LT_VERSION" '$1==qb && $2==lt && $3=="amd64" && $4=="static" {print; exit}' /tmp/qbittorrent.tsv)"
-          [[ -n "$line" ]] || { echo "::error::Jerry's manifest has no static amd64 build for qBittorrent $QB_VERSION + libtorrent $LT_VERSION"; exit 1; }
-          IFS=$'\t' read -r version lt_manifest arch source_type url expected_sha family <<< "$line"
-          [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::Manifest SHA-256 is invalid"; exit 1; }
-          source_ref="$(sed -n 's#^https://raw.githubusercontent.com/jerry048/Dedicated-Seedbox/\([0-9a-f]\{40\}\)/.*#\1#p' <<< "$url")"
-          [[ "$source_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Source URL is not commit-pinned"; exit 1; }
+          curl -fsSL --retry 3 --connect-timeout 20 "$manifest_url" -o "$RUNNER_TEMP/qbittorrent.tsv"
+          curl -fsSL --retry 3 --connect-timeout 20 "$readme_url" -o "$RUNNER_TEMP/qbittorrent-readme.md"
+          python3 - <<'PY'
+          import csv
+          import json
+          import os
+          import re
+          import urllib.request
+          from pathlib import Path
 
-          curl -fsSL --retry 3 --connect-timeout 20 "$readme_url" -o /tmp/qbittorrent-readme.md
-          patch_ref="$(grep -oE 'https://github.com/jerry048/Patch/tree/[0-9a-f]{40}/patches' /tmp/qbittorrent-readme.md | head -n1 | sed -E 's#^.*/tree/([0-9a-f]{40})/patches$#\1#' || true)"
-          [[ "$patch_ref" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Could not find the patch commit pinned by Jerry's build documentation"; exit 1; }
+          manifest = Path(os.environ["RUNNER_TEMP"]) / "qbittorrent.tsv"
+          readme = Path(os.environ["RUNNER_TEMP"]) / "qbittorrent-readme.md"
+          qb_filter = os.environ.get("QB_VERSION_FILTER", "").strip()
+          lt_filter = os.environ.get("LT_VERSION_FILTER", "").strip()
+          if bool(qb_filter) != bool(lt_filter):
+              raise SystemExit("Set both qb_version and lt_version, or leave both empty.")
 
-          tag="release-${QB_VERSION}_v${LT_VERSION}"
-          release_sum_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}/x86_64-qbittorrent-nox.sha256"
-          current_sha="$(curl -fsSL --connect-timeout 10 "$release_sum_url" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
-          if [[ "$current_sha" == "$expected_sha" ]]; then
-            should_publish=false
-            echo "Jerry's prebuilt binary is unchanged ($expected_sha); no new release is needed."
-          else
-            should_publish=true
-            echo "A new/missing release is needed. Jerry binary SHA-256: $expected_sha"
-          fi
+          lt_filter = lt_filter.removeprefix("libtorrent-").removeprefix("v")
+          lt_filter_field = "1_1_14" if lt_filter == "1.1.14" else ("v" + lt_filter if lt_filter else "")
+          patch_match = re.search(
+              r"https://github\.com/jerry048/Patch/tree/([0-9a-f]{40})/patches",
+              readme.read_text(encoding="utf-8"),
+          )
+          if not patch_match:
+              raise SystemExit("Could not resolve the jerry048/Patch commit pinned by the qBittorrent README.")
+          patch_ref = patch_match.group(1)
 
-          {
-            echo "should_publish=$should_publish"
-            echo "qb_version=$QB_VERSION"
-            echo "lt_version=$LT_VERSION"
-            echo "source_url=$url"
-            echo "source_sha256=$expected_sha"
-            echo "source_ref=$source_ref"
-            echo "patch_ref=$patch_ref"
-          } >> "$GITHUB_OUTPUT"
+          matrix = []
+          with manifest.open(encoding="utf-8", newline="") as fh:
+              for row in csv.reader(fh, delimiter="\t"):
+                  if not row or row[0].startswith("#") or len(row) < 7:
+                      continue
+                  qb, lt_field, arch, source, url, sha, family = row[:7]
+                  if arch != "amd64" or source != "static":
+                      continue
+                  if qb_filter and (qb != qb_filter or lt_field != lt_filter_field):
+                      continue
+                  match = re.match(
+                      r"^https://raw\.githubusercontent\.com/jerry048/Dedicated-Seedbox/([0-9a-f]{40})/",
+                      url,
+                  )
+                  if not match or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
+                      raise SystemExit(f"Invalid pinned source URL or SHA-256 in manifest row: {qb} {lt_field}")
+                  if family not in {"legacy_41", "classic_pbkdf2", "modern_pbkdf2"}:
+                      raise SystemExit(f"Unknown qBittorrent config family in manifest row: {family}")
+                  lt_version = lt_field.removeprefix("v").replace("_", ".")
+                  tag = f"release-{qb}_v{lt_version}"
+                  checksum_url = (
+                      f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+                      f"/releases/download/{tag}/x86_64-qbittorrent-nox.sha256"
+                  )
+                  current_sha = ""
+                  try:
+                      with urllib.request.urlopen(checksum_url, timeout=15) as response:
+                          current_sha = response.read().decode("utf-8", "replace").split()[0]
+                  except Exception:
+                      pass
+                  matrix.append({
+                      "qb_version": qb,
+                      "lt_version": lt_version,
+                      "lt_manifest": lt_field,
+                      "source_url": url,
+                      "source_sha256": sha.lower(),
+                      "source_ref": match.group(1),
+                      "patch_ref": patch_ref,
+                      "config_family": family,
+                      "publish": current_sha.lower() != sha.lower(),
+                  })
+
+          if qb_filter and not matrix:
+              raise SystemExit(f"No Jerry static amd64 build found for qBittorrent {qb_filter} + libtorrent {lt_filter}.")
+          if not matrix:
+              raise SystemExit("No amd64 static builds were found in Jerry's manifest.")
+          matrix_json = json.dumps({"include": matrix}, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + matrix_json + "\n")
+          print(f"Found {len(matrix)} amd64 build combinations; {sum(x['publish'] for x in matrix)} need publishing.")
+          PY
 
   publish:
     needs: discover
-    if: needs.discover.outputs.should_publish == 'true'
+    if: ${{ matrix.publish == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     permissions:
       contents: write
     env:
-      QB_VERSION: ${{ needs.discover.outputs.qb_version }}
-      LT_VERSION: ${{ needs.discover.outputs.lt_version }}
-      SOURCE_URL: ${{ needs.discover.outputs.source_url }}
-      SOURCE_SHA256: ${{ needs.discover.outputs.source_sha256 }}
-      SOURCE_REF: ${{ needs.discover.outputs.source_ref }}
-      PATCH_REF: ${{ needs.discover.outputs.patch_ref }}
+      QB_VERSION: ${{ matrix.qb_version }}
+      LT_VERSION: ${{ matrix.lt_version }}
+      LT_MANIFEST: ${{ matrix.lt_manifest }}
+      SOURCE_URL: ${{ matrix.source_url }}
+      SOURCE_SHA256: ${{ matrix.source_sha256 }}
+      SOURCE_REF: ${{ matrix.source_ref }}
+      PATCH_REF: ${{ matrix.patch_ref }}
+      CONFIG_FAMILY: ${{ matrix.config_family }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -113,17 +157,18 @@ jobs:
           chmod 700 out/x86_64-qbittorrent-nox
           version_output="$(out/x86_64-qbittorrent-nox --version 2>&1)"
           printf '%s\n' "$version_output"
-          grep -Fq "qBittorrent v$QB_VERSION" <<< "$version_output" || {
+          grep -Fq "qBittorrent v$QB_VERSION" <<<"$version_output" || {
             echo "::error::Prebuilt binary version does not match $QB_VERSION"; exit 1;
           }
           sha256sum out/x86_64-qbittorrent-nox | tee out/x86_64-qbittorrent-nox.sha256
           {
-            echo "qBittorrent $QB_VERSION + libtorrent $LT_VERSION, static x86_64 (Jerry prebuilt binary)"
+            echo "qBittorrent $QB_VERSION + libtorrent $LT_VERSION, static amd64 (Jerry prebuilt)"
             echo "Source: jerry048/Dedicated-Seedbox@$SOURCE_REF"
-            echo "jerry048/Patch commit: $PATCH_REF"
-            echo "qBittorrent patch : jerry048/Patch $PATCH_REF -> patches for $QB_VERSION (applied cleanly to $QB_VERSION)"
-            echo "libtorrent patch  : jerry048/Patch $PATCH_REF -> patches/libtorrent/$LT_VERSION"
-            echo "Source SHA-256 verified against Jerry's manifests/qbittorrent.tsv"
+            echo "Patch source: jerry048/Patch@$PATCH_REF"
+            echo "qBittorrent patch: patches for $QB_VERSION (applied cleanly)"
+            echo "libtorrent patch path: patches/libtorrent/$LT_VERSION"
+            echo "Config family: $CONFIG_FAMILY"
+            echo "Source SHA-256 verified against manifests/qbittorrent.tsv"
           } | tee out/patches-used.txt
 
       - name: Publish verified release
@@ -131,11 +176,11 @@ jobs:
         run: |
           set -euo pipefail
           tag="release-${QB_VERSION}_v${LT_VERSION}"
-          notes="Mirrored prebuilt qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} from jerry048/Dedicated-Seedbox. The binary was verified against Jerry's pinned manifest SHA-256. No local compilation was performed."
+          notes="Mirrored Jerry's static qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} amd64 build. SHA-256 verified against the commit-pinned entry in Dedicated-Seedbox/manifests/qbittorrent.tsv. No local compilation was performed."
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" out/* --clobber
             gh release edit "$tag" --title "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} (Jerry prebuilt)" --notes "$notes"
           else
-            gh release create "$tag" out/* --title "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} (Jerry prebuilt)" --notes "$notes" --target "${GITHUB_SHA}"
+            gh release create "$tag" out/* --title "qBittorrent ${QB_VERSION} + libtorrent ${LT_VERSION} (Jerry prebuilt)" --notes "$notes" --target "$GITHUB_SHA"
           fi
           echo "Published: https://github.com/${GITHUB_REPOSITORY}/releases/tag/$tag"
