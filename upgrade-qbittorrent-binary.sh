@@ -26,6 +26,14 @@ config_family() {
   elif version_ge "$v" "4.1.0"; then printf 'legacy_41\n'
   else return 1; fi
 }
+
+manifest_family() {
+  local v="$1"
+  if version_ge "$v" "4.4.0"; then printf 'modern_pbkdf2\\n'
+  elif version_ge "$v" "4.2.0"; then printf 'classic_pbkdf2\\n'
+  elif version_ge "$v" "4.1.0"; then printf 'legacy_41\\n'
+  else return 1; fi
+}
 fetch_text() { curl -fsSL --retry 3 --connect-timeout 20 "$1"; }
 
 [[ "$QB_VERSION" =~ ^[0-9]+(\.[0-9]+){2,3}$ ]] || die "Invalid QB_VERSION: $QB_VERSION"
@@ -39,6 +47,7 @@ CURRENT_VERSION="$(sed -nE 's/.*qBittorrent v([0-9]+(\.[0-9]+){2,3}).*/\1/p' <<<
 [[ -n "$CURRENT_VERSION" ]] || die "Could not parse current binary version: $CURRENT_OUTPUT"
 CURRENT_FAMILY="$(config_family "$CURRENT_VERSION")" || die "Unsupported current config family: $CURRENT_VERSION"
 TARGET_FAMILY="$(config_family "$QB_VERSION")" || die "Unsupported target config family: $QB_VERSION"
+TARGET_MANIFEST_FAMILY="$(manifest_family "$QB_VERSION")" || die "Unsupported target manifest family: $QB_VERSION"
 
 # A binary-only operation must not cross a qBittorrent configuration schema boundary.
 # qB 5.3 moved the WebUI keys from [Preferences] to [WebUI].
@@ -81,7 +90,7 @@ else
   [[ "$BINARY_URL" =~ ^https://raw\.githubusercontent\.com/jerry048/Dedicated-Seedbox/[0-9a-f]{40}/ ]] || die "Manifest URL is not commit-pinned."
   [[ "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]] || die "Manifest SHA-256 is invalid."
   case "$M_FAMILY" in legacy_41|classic_pbkdf2|modern_pbkdf2) ;; *) die "Unknown manifest config family: $M_FAMILY" ;; esac
-  [[ "$M_FAMILY" == "$CURRENT_FAMILY" ]] || die "Manifest config family does not match the current install."
+  [[ "$M_FAMILY" == "$TARGET_MANIFEST_FAMILY" ]] || die "Manifest config family does not match the requested qBittorrent version."
   SUM_URL=""
 fi
 
